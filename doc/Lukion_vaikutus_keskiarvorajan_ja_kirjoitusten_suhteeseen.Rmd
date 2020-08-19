@@ -1,0 +1,68 @@
+---
+title: "Miten lukiot vaikuttavat opiskelijoittensa arvosanoihin?"
+author: "Konsta Happonen"
+date: "2020"
+output:
+  pdf_document
+---
+
+## Kysymyksenasettelu
+Ylioppilaskirjoitusten jälkeen nostetaan uutisissa esille "huippulukiot", eli lukiot joiden opiskelijat ovat saaneet keskimäärin korkeimmat arvosanat.
+Jollain tavalla arvosanojen taso ei kuitenkaan ole paras mittari parannukselle, sillä eri lukioilla on hyvin erilaiset opiskelijapohjat. Lukio-opetuksen
+hyvyyden lisäksi ylioppilastutkintojen arvosanoihin vaikuttaa siis myös opiskelijoiden lähtötaso.
+
+Toisinaan uutisissa tehdään juttuja myös lukioista, joissa arvosanat ovat muuttuneet eniten. Esimerkiksi STT vertaillee lukioiden 
+keskiarvorajoja ylioppilaskokeiden keskiarvoon. Vertailua varten ylioppilastutkinnon arvosanat muutetaan kouluarvosanoja vastaaviksi numeroiksi.
+Vertailun taustalla ei kuitenkaan ole mitään tilastollista mallia - tästä kielii esimerkiksi se, että epävarmuuden huomioon ottaminen tapahtuu jakamalla
+aineisto suuriin ja pieniin lukioihin, eikä esimerkiksi esittämällä luottamusvälejä lukioiden oppilaisiin kohdistuvalle vaikutukselle.
+
+Lisäksi kun arvosanoja kohdellaan jatkuvina muuttujina, unohdetaan muutama tärkeä seikka. Kahden arvosanan välinen etäisyys ei välttämättä ole sama eri kohdissa arvosana-asteikkoa. Voi esimerkiksi olla helpompi korottaa arvosanaansa I:stä A:han kuin A:sta B:hen. Arvosanoilla on myös ylä- ja alarajat. Ylioppilastutkinnossa ei ole mahdollista saada laudaturia suurempaa arvosanaa, ei vaikka miten paljon tietäisi. Opiskelijat, joiden numerot ovat korkeita jo lukioon päästessään, eivät edes voi korottaa arvosanojaan yhtä paljon kuin pienemmillä arvosanoilla sisään päässeet.
+
+Nämä ongelmat on kenties mahdollista ratkaista mallintamalla ylioppilastutkinnon arvosanoja järjestysasteikollisena muuttujana.
+
+Kaikkein hienointa olisi, jos peruskoulun päättötodistuksen ja lukion vaikutuksia ylioppilaskokeen arvosanoihin voisi mallintaa yksilötasolla. Tällaista aineistoa ei kuitenkaan ole helposti saatavilla. Lisäksi peruskoulun päättötodistuksen arviointi voi saman osaamistason yksilöiden kohdalla heittää jopa kaksi numeroa. Siksi tässä
+tutkielmassa peruskoulun arvosanojen vaikutusta tutkitaan lukion keskiarvorajan avulla. Yleensä lukioihin hakee opiskelijoita useista peruskouluista, joten systemaattiset virheet peruskoulun arvosanojen määräytymisessä kenties laimenevat.
+
+Koska kyseessä on alustava kokeilu, yritän ensiksi yksinkertaista mallinnusta. Mallin pitäisi ennustaa keskimääräisen ylioppilaskokelaan arvosanojen todennäköisyysjakauma yhdessä aineessa. Tässä kokeilussa aine on suomenkielisten opiskelijoiden äidinkielen koe. Jakauman pitäisi muistuttaa ylioppilastutkintolautakunnan referenssijakaumaa. Jos malli toimii, lisään malliin vaiheittain ennustajiksi lukion arvosanarajan sekä lukion itsensä, ja kenties muitakin muuttujia.
+
+## Ensimmäinen, yksinkertainen malli
+Statistical rethinking, 2. painos. Kappale 12: Monsters and Mixtures.
+
+Oletan, että jokaisen kokelaan äidinkielen arvosana tulee kategorisesta jakaumasta.
+Kategorisen jakauman parametri p on vektorimuotoinen ja sisältää seitsemän todennäköisyyttä, yhden jokaiselle arvosanalle.
+Siis esimerkiksi p_e = todennäköisyys saada arvosanaksi eximia.
+
+Jotta arvosanoja voisi mallintaa järjestysasteikollisena muuttujana, p pitää uudelleenparametrisoida.
+Järjestysasteikollisessa logistisessa regressiossa päättelyn kohteena on q, kumulatiivisten todennäköisyyksien vektori. Siis esimerkiksi q_e = todennäköisyys saada arvosanaksi eximia tai sitä huonompi arvosana.
+
+Linkkifunktiona käytetään logit-muunnosta, joka muuttaa 0–1 välillä olevat todennäköisyydet negatiivisesta äärettömyydestä äärettömään ulottuviksi log-vedonlyöntikertoimiksi. Näiden vedonlyöntikertoimien sijoittuminen äärettömän pitkälle janalle hallitsee sitä, kuinka todennäköinen kukin arvosana on (kuvat 1 a ja b).
+Kertoimia tarvitaan yksi vähemmän kuin mitä arvosanoja on, koska arvosanojen kokonaistodennäköisyyden on summauduttava yhteen. Kun tiedetään kuuden muun arvosanan todennäköisyys, seitsemäs tiedetään automaattisesti. Kun malliin lisätään ennustajia, ne säätelevät log-vedonlyöntikertoimien paikkaa. Esimerkiksi korkean keskiarvorajan luulisi liikuttavan kertoimia vasemmalle, jolloin korkeiden arvosanojen todennäköisyys kasvaisi.
+
+```{r logit-muunnos}
+library(rethinking)
+x <- c(-3,-2,-1,1,2,3)
+y <- inv_logit(x)
+curve(inv_logit(x), from = -4,to=4, xlab = "logit(p)", ylab = "p",yaxs="i")
+for(i in 1:length(x)) lines(x=rep(x[i],2), y=c(0,y[i]))
+lines(x=rep(x[3],2), y=c(0,y[3]), col = "red",lwd=2)
+lines(x=c(-10,x[3]),y=rep(y[3],2),lwd = 2, lty=2, col = "red")
+lines(x=rep(x[4],2), y=c(y[3],y[4]), col = "blue", lwd=2)
+lines(x=c(-10,x[4]),y=rep(y[3],2),lwd = 2, lty=3, col = "blue")
+lines(x=c(-10,x[4]),y=rep(y[4],2),lwd = 2, lty=3, col = "blue")
+p_c <- y[4]-y[3]
+text(x = -2, y = y[3] + p_c/2, label = paste0("p_c =", round(p_c,2)), col = "blue")
+
+x <- x - 0.5
+y <- inv_logit(x)
+curve(inv_logit(x), from = -4,to=4, xlab = "logit(p)", ylab = "p",yaxs="i")
+for(i in 1:length(x)) lines(x=rep(x[i],2), y=c(0,y[i]))
+lines(x=rep(x[3],2), y=c(0,y[3]), col = "red",lwd=2)
+lines(x=c(-10,x[3]),y=rep(y[3],2),lwd = 2, lty=2, col = "red")
+lines(x=rep(x[4],2), y=c(y[3],y[4]), col = "blue", lwd=2)
+lines(x=c(-10,x[4]),y=rep(y[3],2),lwd = 2, lty=3, col = "blue")
+lines(x=c(-10,x[4]),y=rep(y[4],2),lwd = 2, lty=3, col = "blue")
+p_c <- y[4]-y[3]
+text(x = -2, y = y[3] + p_c/2, label = paste0("p_c =", round(p_c,2)), col = "blue")
+```
+
+Aineistona toimivat kevään 2020 ylioppilaskirjoitusten äidinkielen arvosanat.
