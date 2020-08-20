@@ -38,14 +38,13 @@ Järjestysasteikollisessa logistisessa regressiossa päättelyn kohteena on q, k
 Linkkifunktiona käytetään logit-muunnosta, joka muuttaa 0–1 välillä olevat todennäköisyydet negatiivisesta äärettömyydestä äärettömään ulottuviksi log-vedonlyöntikertoimiksi. Näiden vedonlyöntikertoimien sijoittuminen äärettömän pitkälle janalle hallitsee sitä, kuinka todennäköinen kukin arvosana on (kuvat 1 a ja b).
 Kertoimia tarvitaan yksi vähemmän kuin mitä arvosanoja on, koska arvosanojen kokonaistodennäköisyyden on summauduttava yhteen. Kun tiedetään kuuden muun arvosanan todennäköisyys, seitsemäs tiedetään automaattisesti. Kun malliin lisätään ennustajia, ne säätelevät log-vedonlyöntikertoimien paikkaa. Esimerkiksi korkean keskiarvorajan luulisi liikuttavan kertoimia vasemmalle, jolloin korkeiden arvosanojen todennäköisyys kasvaisi.
 
-```{r logit-muunnos}
+```{r logit-muunnos, message=FALSE, warning=FALSE}
 library(rethinking)
 x <- c(-3,-2,-1,1,2,3)
 y <- inv_logit(x)
 curve(inv_logit(x), from = -4,to=4, xlab = "logit(p)", ylab = "p",yaxs="i")
 for(i in 1:length(x)) lines(x=rep(x[i],2), y=c(0,y[i]))
 lines(x=rep(x[3],2), y=c(0,y[3]), col = "red",lwd=2)
-lines(x=c(-10,x[3]),y=rep(y[3],2),lwd = 2, lty=2, col = "red")
 lines(x=rep(x[4],2), y=c(y[3],y[4]), col = "blue", lwd=2)
 lines(x=c(-10,x[4]),y=rep(y[3],2),lwd = 2, lty=3, col = "blue")
 lines(x=c(-10,x[4]),y=rep(y[4],2),lwd = 2, lty=3, col = "blue")
@@ -57,7 +56,6 @@ y <- inv_logit(x)
 curve(inv_logit(x), from = -4,to=4, xlab = "logit(p)", ylab = "p",yaxs="i")
 for(i in 1:length(x)) lines(x=rep(x[i],2), y=c(0,y[i]))
 lines(x=rep(x[3],2), y=c(0,y[3]), col = "red",lwd=2)
-lines(x=c(-10,x[3]),y=rep(y[3],2),lwd = 2, lty=2, col = "red")
 lines(x=rep(x[4],2), y=c(y[3],y[4]), col = "blue", lwd=2)
 lines(x=c(-10,x[4]),y=rep(y[3],2),lwd = 2, lty=3, col = "blue")
 lines(x=c(-10,x[4]),y=rep(y[4],2),lwd = 2, lty=3, col = "blue")
@@ -65,4 +63,80 @@ p_c <- y[4]-y[3]
 text(x = -2, y = y[3] + p_c/2, label = paste0("p_c =", round(p_c,2)), col = "blue")
 ```
 
-Aineistona toimivat kevään 2020 ylioppilaskirjoitusten äidinkielen arvosanat.
+Aineistona toimivat kevään 2020 ylioppilaskirjoitusten äidinkielen arvosanat. Ladataan aineisto, ja tarkastellaan 
+sen rakennetta kymmenen satunnaisen esimerkkirivin avulla.
+
+```{r aineiston lataus, message=FALSE, warning=FALSE}
+library(tidyverse)
+d <- read_csv("../results/clean_data/aidinkieli_k20.csv")
+d %>% sample_n(10)
+```
+
+Jokainen rivi edustaa yhteä ylioppilaskokelasta. Aineistossa on tieto lukiosta (koulun_nimi), väestötietojärjestelmään merkatusta sukupuolesta (sukup, 1 = mies, 2= nainen), äidinkielen kevään kirjoitusten arvosana (A), sekä alimmasta keskiarvosta, jolla kyseiseen lukion ns. normaalille linjalle on päässyt vuonna 2017. Aineistossa ovat mukana vain lukiot, joilla on painottamaton nuorisolinja, mutta kirjoitustuloksista muita opiskelijoita ei ole voitu rajata pois. Tämä aiheuttaa vinoumaa aineistoon, mikä on pidettävä mielessä tuloksia tulkitessa.
+
+Arvosanat ovat tässä pisteinä (improbaturista saa nolla pistettä). Ennen arvosanojen jakaumien tarkastelua, muutetaan ne järjestysasteikolle.
+
+```{r}
+arvosanat <- c("I","A","B","C","M","E","L")
+d$A[d$A == 0] <- 1
+simplehist(d$A, xaxt = "n", xlab = NA)
+axis(side = 1, at = 1:7, labels = arvosanat)
+```
+
+Arvosanojen referenssijakauma, johon ylioppilastutkintolautakunta pyrkii, on 5%,15%,20%,20%,20%,15%,5%. Jakauma on kuitenkin hieman vino, mikä saattaa johtua siitä, että aineistosta poistettujen aikuislukioiden, ruotsinkielisisten lukioiden ja erityislukioiden opiskelijoiden arvosanat eivät ole satunnaisotos kaikista arvosanoista.
+
+Yksinkertaisin mahdollinen malli koettaisi toisintaa palauttaa tämän jakauman ilman selittäviä muuttujia.
+Yritän seuraavaksi rakentaa tällaisen mallin.
+
+Ensin on kuitenkin määritettävä priorit. Malli on erään tyyppinen logistinen regressio. Logistinen regressio on hyvin lähellä probit-regressiota. Jos malli olisi probit-regressio, ylioppilaskirjoitusten arvosanojen log-vedonlyöntikertoimet tulisivat N(0,1) -jakaumasta. Levitän tätä jakaumaa hieman, koska otoksen vinous lisää epävarmuutta kertoimien sijainnista.
+
+```{r aineisto mallille}
+# aineist0
+dat_list <- list(
+  A = d$A
+  )
+
+# mallin rakenne
+m1.form <- alist(
+  A ~ dordlogit(0,kertoimet), # phi = 0, tässä mallissa ei ole selittäjiä
+  kertoimet ~ dnorm(0,1.5) # priori kertoimille
+  )
+```
+
+
+```{r malli, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+m1 <- ulam(m1.form,
+           data = dat_list,
+           chains = 4,
+           cores = 4
+)
+write_rds("../results/models/m1.rds")
+```
+
+```{r}
+m1 <- read_rds("../results/models/m1.rds")
+precis(m1,depth=2)
+```
+Mallintamalla olemme saaneet posteriorijakaumat kuudelle kertoimelle. Seuraava koodinpätkä muuttaa nämä kunkin arvosanan todennäköisyysjakaumaksi.
+
+```{r}
+m1.samples <- extract.samples(m1) # posteriorijakaumat kertoimille
+kum_tn <- inv_logit(m1.samples$kertoimet) # kumulatiiviset todennäköisyydet
+kum_tn <- cbind(kum_tn,1) # viimeisen arvosanan kumulatiivinen todennäköisyys on 1
+
+ # Muutetaan kumulatiiviset todennäköisyydet arvosanakohtaisiksi todennäköisyyksiksi
+for(i in NCOL(kum_tn):2) kum_tn[,i] <- kum_tn[,i] - kum_tn[,i-1]
+kum_tn.mu <- apply(kum_tn,2,mean) # lasketaan keskiarvot
+kum_tn.ci <- apply(kum_tn,2,PI,20/21) # 1/20 käänteinen vedonlyöntiväli
+
+# Lasketaan aineiston arvosanajakauma
+arvosana_frek <- d %>% group_by(A) %>% count %>% ungroup %>% mutate(p = n/sum(n))
+referenssi <- c(0.05,0.15,0.2,0.2,0.2,0.15,0.05)
+
+plot(kum_tn.mu, pch=16, xaxt = "n", xlab = NA, ylab = "Todennäköisyyys", cex=1)
+points(p~A, arvosana_frek, col="red", pch = 16, cex=0.5)
+axis(1,at=1:7, labels = arvosanat)
+for(i in 1:NCOL(kum_tn.ci)) lines(c(i,i), kum_tn.ci[1:2,i]) 
+for(i in 1:7) lines(c(i-0.1,i+0.1), referenssi[c(i,i)])
+```
+
